@@ -1,0 +1,15 @@
+- Dataset
+We use the Sentiment Analysis for Financial News dataset for sentiment classification. This dataset has 4846 samples, each contains a news headline and its sentiment. The sentiment has three types: positive, negative, and neutral. Our task is to extract useful features from the news headlines, and use them to classify the sentiment.
+
+- Preprocessing
+The preprocessing follows five steps:
+1. Convert original text to lower case.
+2. Remove special characters and numbers, leaving only english letters.
+3. Remove stopwords from the text, such as "is", "the". These words are commonly seen in text but generally are not related to sentiment polarity.
+4. Lemmatize words using WordNet. This step unifies the different forms of the same word, making the feature extraction more accurate.
+5. Sample data from each class to create train/test subsets. Data ratio of train vs test is 0.75:0.25
+
+After preprocessing, the training set has 3634 samples, and the test set has 1212 samples. At word level, the entire dataset has an average text length of 12.
+
+- Prepare Dataloaders
+In our experiment, we try three different feature extraction methods: Bag of Words, TF-IDF, and Word2Vector. The algorithm is implemented based on sklearn and gensim, Dataset and DataLoader are implemented based on PyTorch.

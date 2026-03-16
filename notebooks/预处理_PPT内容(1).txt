@@ -1,0 +1,57 @@
+===== PAGE 1: =====
+
+The preprocessing follows five steps:
+1. Convert original text to lower case.
+2. Remove special characters and numbers, leaving only english letters.
+3. Remove stopwords from the text.
+4. Lemmatize words using WordNet.
+5. Sample data from each class to create train/test subsets. Data ratio of train vs test is 0.75:0.25
+
+===== PAGE 2: =====
+Statistics:
+- Data size: 4846
+
+- Label distribution:
+neutral     2879
+positive    1363
+negative     604
+
+===== PAGE 3 (可以做成两个表格): =====
+
+- Text length statistics(before processing, character level):
+mean      128.132068
+std        56.526180
+min         9.000000
+25%        84.000000
+50%       119.000000
+75%       163.000000
+max       315.000000
+
+- Text length statistics(after processing, character level):
+mean       88.208626
+std        43.598506
+min         0.000000
+25%        55.000000
+50%        81.000000
+75%       116.000000
+max       256.000000
+
+===== PAGE 4 (可以做成两个表格): =====
+
+- Text length statistics(before processing, word level):
+mean       23.101114
+std         9.958474
+min         2.000000
+25%        16.000000
+50%        21.000000
+75%        29.000000
+max        81.000000
+
+- Text length statistics(after processing, word level):
+mean       12.013619
+std         5.704073
+min         0.000000
+25%         8.000000
+50%        11.000000
+75%        15.000000
+max        38.000000
