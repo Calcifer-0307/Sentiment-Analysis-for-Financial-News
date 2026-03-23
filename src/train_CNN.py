@@ -226,7 +226,8 @@ print(classification_report(y_true_cnn, y_pred_cnn, target_names=Config.TARGET_N
 
 # 12. Check and import transformers
 import transformers
-from transformers import DistilBertTokenizer, DistilBertForSequenceClassification, AdamW
+from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
+from torch.optim import AdamW
 
 # 13. BERT Dataset definition
 class BertDataset(Dataset):
