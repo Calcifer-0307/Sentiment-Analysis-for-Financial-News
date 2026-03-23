@@ -1,334 +1,71 @@
-"""
-Financial News Sentiment Analysis
-Complete training script for TextCNN and DistilBERT models.
-"""
-
-import os
-import sys
-import random
-import numpy as np
-import pandas as pd
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from collections import Counter
-from sklearn.metrics import classification_report
-import nltk
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
-import warnings
-warnings.filterwarnings('ignore')
-
-# 1. Download NLTK data if needed
-
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('stopwords')
-try:
-    nltk.data.find('corpora/wordnet')
-except LookupError:
-    nltk.download('wordnet')
-try:
-    nltk.data.find('corpora/omw-1.4')
-except LookupError:
-    nltk.download('omw-1.4')
-
-# 2. Check data files
-
-train_path = 'data/raw/train_data.csv'
-test_path = 'data/raw/test_data.csv'
-if not os.path.exists(train_path) or not os.path.exists(test_path):
-    print("Error: Preprocessed data files not found.")
-    print("Please run src/preprocess.py first to generate training/test data.")
-    sys.exit(1)
-
-# 3. Global settings
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Using device: {device}")
-
-def set_seed(seed=42):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-set_seed(42)
-
-# 4. Load data
-
-train_df = pd.read_csv(train_path)
-test_df = pd.read_csv(test_path)
-
-# Label mapping
-label_map = {'positive': 0, 'negative': 1, 'neutral': 2}
-train_df['label'] = train_df['sentiment'].map(label_map)
-test_df['label'] = test_df['sentiment'].map(label_map)
-
-# Ensure processed_text column is string (handle missing values)
-train_df['processed_text'] = train_df['processed_text'].fillna('').astype(str)
-test_df['processed_text'] = test_df['processed_text'].fillna('').astype(str)
-
-X_train = train_df['processed_text'].values
-y_train = train_df['label'].values
-X_test = test_df['processed_text'].values
-y_test = test_df['label'].values
-
-print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
-print("Class distribution in training set:", np.bincount(y_train))
-
-# Part I: TextCNN Model
-
-# 5. CNN Dataset definition
-class TextDataset(Dataset):
-    def __init__(self, texts, labels, vocab=None, max_len=32, is_train=True):
-        self.texts = texts
-        self.labels = labels
-        self.max_len = max_len
-        self.is_train = is_train
-        if is_train:
-            self.vocab = self.build_vocab(texts)
-        else:
-            self.vocab = vocab
-        self.vocab_size = len(self.vocab)
-
-    def build_vocab(self, texts, min_freq=2):
-        counter = Counter()
-        for text in texts:
-            for word in str(text).split():
-                counter[word] += 1
-        vocab = {'<PAD>': 0, '<UNK>': 1}
-        for word, freq in counter.items():
-            if freq >= min_freq:
-                vocab[word] = len(vocab)
-        return vocab
-
-    def encode_text(self, text):
-        tokens = str(text).split()
-        ids = [self.vocab.get(tok, 1) for tok in tokens]
-        if len(ids) < self.max_len:
-            ids += [0] * (self.max_len - len(ids))
-        else:
-            ids = ids[:self.max_len]
-        return torch.tensor(ids, dtype=torch.long)
-
-    def __len__(self):
-        return len(self.texts)
-
-    def __getitem__(self, idx):
-        return self.encode_text(self.texts[idx]), torch.tensor(self.labels[idx], dtype=torch.long)
-
-# 6. Create CNN DataLoaders
-train_dataset_cnn = TextDataset(X_train, y_train, max_len=32, is_train=True)
-test_dataset_cnn = TextDataset(X_test, y_test, vocab=train_dataset_cnn.vocab, max_len=32, is_train=False)
-
-train_loader_cnn = DataLoader(train_dataset_cnn, batch_size=64, shuffle=True)
-test_loader_cnn = DataLoader(test_dataset_cnn, batch_size=64, shuffle=False)
-print(f"CNN vocab size: {train_dataset_cnn.vocab_size}")
-
-# 7. Define TextCNN model
-class TextCNN(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, num_filters, filter_sizes, num_classes, dropout=0.5):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
-        self.convs = nn.ModuleList([
-            nn.Conv1d(embedding_dim, num_filters, fs) for fs in filter_sizes
-        ])
-        self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(len(filter_sizes) * num_filters, num_classes)
-
-    def forward(self, x):
-        emb = self.embedding(x)                     # (batch, seq_len, embed_dim)
-        emb = emb.permute(0, 2, 1)                  # (batch, embed_dim, seq_len)
-        conv_outs = [F.relu(conv(emb)) for conv in self.convs]
-        pooled = [F.max_pool1d(c, c.size(2)).squeeze(2) for c in conv_outs]
-        cat = self.dropout(torch.cat(pooled, dim=1))
-        return self.fc(cat)
-
-# 8. Model parameters and optimizer
-vocab_size = train_dataset_cnn.vocab_size
-embedding_dim = 100
-num_filters = 100
-filter_sizes = [3,4,5]
-num_classes = 3
-
-model_cnn = TextCNN(vocab_size, embedding_dim, num_filters, filter_sizes, num_classes).to(device)
-criterion_cnn = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.5, 1.0]).to(device))
-optimizer_cnn = optim.Adam(model_cnn.parameters(), lr=1e-3)
-
-# 9. Training functions
-def train_cnn_epoch(model, loader, criterion, optimizer):
-    model.train()
-    total_loss = 0
-    for texts, labels in loader:
-        texts, labels = texts.to(device), labels.to(device)
-        optimizer.zero_grad()
-        outputs = model(texts)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-    return total_loss / len(loader)
-
-def evaluate_cnn(model, loader, criterion):
-    model.eval()
-    total_loss = 0
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for texts, labels in loader:
-            texts, labels = texts.to(device), labels.to(device)
-            outputs = model(texts)
-            loss = criterion(outputs, labels)
-            total_loss += loss.item()
-            _, pred = torch.max(outputs, 1)
-            total += labels.size(0)
-            correct += (pred == labels).sum().item()
-    return total_loss / len(loader), correct / total
-
-# 10. Train CNN
-print("\nTraining TextCNN...")
-for epoch in range(10):
-    train_loss = train_cnn_epoch(model_cnn, train_loader_cnn, criterion_cnn, optimizer_cnn)
-    test_loss, test_acc = evaluate_cnn(model_cnn, test_loader_cnn, criterion_cnn)
-    print(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Test Loss={test_loss:.4f}, Test Acc={test_acc:.4f}")
-
-# 11. CNN classification report
-def get_cnn_predictions(model, loader):
-    model.eval()
-    preds, labels = [], []
-    with torch.no_grad():
-        for texts, lbls in loader:
-            texts = texts.to(device)
-            outputs = model(texts)
-            _, pred = torch.max(outputs, 1)
-            preds.extend(pred.cpu().numpy())
-            labels.extend(lbls.numpy())
-    return preds, labels
-
-y_pred_cnn, y_true_cnn = get_cnn_predictions(model_cnn, test_loader_cnn)
-print("\nCNN Classification Report:")
-print(classification_report(y_true_cnn, y_pred_cnn, target_names=['positive','negative','neutral']))
-
-# Part II: DistilBERT Model
-
-# 12. Check and import transformers
-try:
-    from transformers import DistilBertTokenizer, DistilBertForSequenceClassification, AdamW
-except ImportError:
-    print("transformers library not installed. Please run: pip install transformers")
-    sys.exit(1)
-
-# 13. BERT Dataset definition
-class BertDataset(Dataset):
-    def __init__(self, texts, labels, tokenizer, max_len=64):
-        self.texts = texts
-        self.labels = labels
-        self.tokenizer = tokenizer
-        self.max_len = max_len
-
-    def __len__(self):
-        return len(self.texts)
-
-    def __getitem__(self, idx):
-        text = str(self.texts[idx])
-        label = self.labels[idx]
-        encoding = self.tokenizer(
-            text,
-            add_special_tokens=True,
-            max_length=self.max_len,
-            padding='max_length',
-            truncation=True,
-            return_tensors='pt'
-        )
-        return {
-            'input_ids': encoding['input_ids'].flatten(),
-            'attention_mask': encoding['attention_mask'].flatten(),
-            'labels': torch.tensor(label, dtype=torch.long)
-        }
-
-# 14. Load pre-trained model and tokenizer
-tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
-model_bert = DistilBertForSequenceClassification.from_pretrained('distilbert-base-uncased', num_labels=3)
-model_bert.to(device)
-
-train_dataset_bert = BertDataset(X_train, y_train, tokenizer, max_len=64)
-test_dataset_bert = BertDataset(X_test, y_test, tokenizer, max_len=64)
-train_loader_bert = DataLoader(train_dataset_bert, batch_size=16, shuffle=True)
-test_loader_bert = DataLoader(test_dataset_bert, batch_size=16, shuffle=False)
-
-optimizer_bert = AdamW(model_bert.parameters(), lr=2e-5)
-criterion_bert = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.5, 1.0]).to(device))
-
-# 15. Training functions (BERT)
-def train_bert_epoch(model, loader, optimizer, criterion):
-    model.train()
-    total_loss = 0
-    for batch in loader:
-        input_ids = batch['input_ids'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
-        labels = batch['labels'].to(device)
-
-        optimizer.zero_grad()
-        outputs = model(input_ids, attention_mask=attention_mask)
-        loss = criterion(outputs.logits, labels)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-    return total_loss / len(loader)
-
-def evaluate_bert(model, loader, criterion):
-    model.eval()
-    total_loss = 0
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for batch in loader:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            labels = batch['labels'].to(device)
-            outputs = model(input_ids, attention_mask=attention_mask)
-            loss = criterion(outputs.logits, labels)
-            total_loss += loss.item()
-            _, pred = torch.max(outputs.logits, 1)
-            total += labels.size(0)
-            correct += (pred == labels).sum().item()
-    return total_loss / len(loader), correct / total
-
-# 16. Train BERT
-print("\nTraining DistilBERT...")
-for epoch in range(4):
-    train_loss = train_bert_epoch(model_bert, train_loader_bert, optimizer_bert, criterion_bert)
-    test_loss, test_acc = evaluate_bert(model_bert, test_loader_bert, criterion_bert)
-    print(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Test Loss={test_loss:.4f}, Test Acc={test_acc:.4f}")
-
-# 17. BERT classification report
-def get_bert_predictions(model, loader):
-    model.eval()
-    preds, labels = [], []
-    with torch.no_grad():
-        for batch in loader:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            labels_batch = batch['labels'].to(device)
-            outputs = model(input_ids, attention_mask=attention_mask)
-            _, pred = torch.max(outputs.logits, 1)
-            preds.extend(pred.cpu().numpy())
-            labels.extend(labels_batch.cpu().numpy())
-    return preds, labels
-
-y_pred_bert, y_true_bert = get_bert_predictions(model_bert, test_loader_bert)
-print("\nDistilBERT Classification Report:")
-print(classification_report(y_true_bert, y_pred_bert, target_names=['positive','negative','neutral']))
-
-print("\nDone.")
-
-## Troubleshooting
-
-- **SSL Certificate Errors**: If you see SSL errors when downloading NLTK data on macOS, run `/Applications/Python 3.x/Install Certificates.command` or use the manual download script above.
-- **ModuleNotFoundError**: Ensure you have activated your virtual environment (`source venv/bin/activate` or `venv\Scripts\activate`) before running scripts.
+annotated-doc==0.0.4
+anyio==4.12.1
+appnope==0.1.4
+asttokens==3.0.1
+certifi==2026.2.25
+click==8.3.1
+comm==0.2.3
+debugpy==1.8.20
+decorator==5.2.1
+executing==2.2.1
+filelock==3.25.2
+fsspec==2026.2.0
+gensim==4.4.0
+h11==0.16.0
+hf-xet==1.4.2
+httpcore==1.0.9
+httpx==0.28.1
+huggingface_hub==1.7.2
+idna==3.11
+ipykernel==7.2.0
+ipython==9.11.0
+ipython_pygments_lexers==1.1.1
+jedi==0.19.2
+Jinja2==3.1.6
+joblib==1.5.3
+jupyter_client==8.8.0
+jupyter_core==5.9.1
+markdown-it-py==4.0.0
+MarkupSafe==3.0.3
+matplotlib-inline==0.2.1
+mdurl==0.1.2
+mpmath==1.3.0
+nest-asyncio==1.6.0
+networkx==3.6.1
+nltk==3.9.3
+numpy==2.4.3
+packaging==26.0
+pandas==3.0.1
+parso==0.8.6
+pexpect==4.9.0
+platformdirs==4.9.4
+prompt_toolkit==3.0.52
+psutil==7.2.2
+ptyprocess==0.7.0
+pure_eval==0.2.3
+Pygments==2.19.2
+python-dateutil==2.9.0.post0
+PyYAML==6.0.3
+pyzmq==27.1.0
+regex==2026.2.28
+rich==14.3.3
+safetensors==0.7.0
+scikit-learn==1.8.0
+scipy==1.17.1
+setuptools==82.0.1
+shellingham==1.5.4
+six==1.17.0
+smart_open==7.5.1
+stack-data==0.6.3
+sympy==1.14.0
+threadpoolctl==3.6.0
+tokenizers==0.22.2
+torch==2.10.0
+tornado==6.5.5
+tqdm==4.67.3
+traitlets==5.14.3
+transformers==5.3.0
+typer==0.24.1
+typing_extensions==4.15.0
+wcwidth==0.6.0
+wrapt==2.1.2

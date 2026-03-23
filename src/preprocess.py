@@ -3,13 +3,14 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 import pandas as pd
+from config import Config
 
 # Download stopwords and wordnet
 # Uncomment these lines if you haven't downloaded them before
 # nltk.download('stopwords')
 # nltk.download('wordnet')
 
-df = pd.read_csv('data/raw/all-data.csv', header=None, names=['sentiment', 'text'], encoding='latin-1') # read raw data
+df = pd.read_csv(Config.RAW_DATA_PATH, header=None, names=['sentiment', 'text'], encoding='latin-1') # read raw data
 
 def show_statistics(df, data_column, label_column): # show statistics of data
     print("Data shape:", df.shape)
@@ -45,18 +46,14 @@ df['processed_text'] = df['text'].apply(preprocess_text)
 show_statistics(df, 'processed_text', 'sentiment')
 
 # Save processed data
-df.to_csv('data/raw/processed_data.csv', index=False)
+df.to_csv(Config.PROCESSED_DATA_PATH, index=False)
 
 # Sample data from each class to create train/test subset
-train_ratio = 0.75
-train_df = df.groupby('sentiment').sample(frac=train_ratio, random_state=42)
+train_df = df.groupby('sentiment').sample(frac=Config.TRAIN_RATIO, random_state=Config.SEED)
 test_df = df.drop(train_df.index)
 
-train_df_name = 'data/raw/train_data.csv'
-test_df_name = 'data/raw/test_data.csv'
-
 # Save train/test data
-train_df.to_csv(train_df_name, index=False)
-test_df.to_csv(test_df_name, index=False)
-print(f"Train data saved to {train_df_name}, size: {train_df.shape}")
-print(f"Test data saved to {test_df_name}, size: {test_df.shape}")
+train_df.to_csv(Config.TRAIN_DATA_PATH, index=False)
+test_df.to_csv(Config.TEST_DATA_PATH, index=False)
+print(f"Train data saved to {Config.TRAIN_DATA_PATH}, size: {train_df.shape}")
+print(f"Test data saved to {Config.TEST_DATA_PATH}, size: {test_df.shape}")
