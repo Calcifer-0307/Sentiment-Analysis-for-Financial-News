@@ -1,16 +1,18 @@
 # Financial News Sentiment Analysis
 
-This project implements sentiment analysis on financial news using various feature extraction techniques (BoW, TF-IDF, Word2Vec) and PyTorch models.
+This project implements sentiment analysis on financial news using various feature extraction techniques (BoW, TF-IDF, Word2Vec) and PyTorch models (TextCNN and DistilBERT).
 
 ## Project Structure
 
 - `data/`: Contains raw and processed data.
-  - `raw/`: Raw datasets.
-  - `processed/`: Processed datasets ready for modeling.
+  - `raw/`: Raw datasets and preprocessed csv files.
 - `src/`: Source code.
-  - `preprocess.py`: Text cleaning and preprocessing script.
-  - `data_helper.py`: PyTorch Dataset and DataLoader implementations.
-- `notebooks/`: Jupyter notebooks for analysis.
+  - `config.py`: Centralized configuration file for hyperparameter tuning and path management.
+  - `preprocess.py`: Text cleaning and train/test splitting script.
+  - `data_helper.py`: Helper functions for BoW, TF-IDF, and Word2Vec models.
+  - `train_CNN.py`: Training and evaluation script for the TextCNN model.
+  - `train_transformer.py`: Training and evaluation script for the DistilBERT model.
+- `notebooks/`: Text reports and previous jupyter notebooks.
 - `requirements.txt`: Python dependencies.
 
 ## Installation
@@ -29,15 +31,15 @@ It is recommended to use a virtual environment to manage dependencies.
 **macOS / Linux:**
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
 **Windows:**
 
 ```cmd
-python -m venv venv
-venv\Scripts\activate
+python -m venv .venv
+.venv\Scripts\activate
 ```
 
 *(Note for Windows PowerShell users: If you encounter an execution policy error, run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`)*
@@ -48,418 +50,50 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Download NLTK Data
-
-The preprocessing script relies on NLTK data (stopwords, wordnet).
-
-**Option A (Automatic):**
-The script attempts to download necessary data automatically.
-
-**Option B (Manual):**
-If you encounter SSL errors or download failures, run the following python commands:
-
-```python
-import nltk
-import ssl
-
-try:
-    _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
-else:
-    ssl._create_default_https_context = _create_unverified_https_context
-
-nltk.download('punkt')
-nltk.download('wordnet')
-nltk.download('omw-1.4')
-nltk.download('stopwords')
-```
-
 ## Usage
 
 ### 1. Data Preprocessing
 
-Run the preprocessing script to clean the raw data and generate train/test splits.
+Run the preprocessing script to clean the raw data and generate train/test splits. It will automatically handle NLTK data downloads and SSL certificates.
 
 ```bash
 # Ensure your virtual environment is activated
 python src/preprocess.py
 ```
 
-This will generate:
-- `data/raw/train_data.csv`
-- `data/raw/test_data.csv`
+This will generate `train_data.csv` and `test_data.csv` in the `data/raw/` directory.
 
-### 2. Loading Data for Training
+### 2. Training the Models
 
-You can use `src/data_helper.py` to create PyTorch DataLoaders.
+We have implemented two deep learning models for comparison. You can adjust hyperparameters (like learning rate, batch size, epochs) centrally in `src/config.py`.
+
+**Run TextCNN Model:**
+```bash
+python src/train_CNN.py
+```
+
+**Run DistilBERT Model:**
+```bash
+python src/train_transformer.py
+```
+
+Both scripts will automatically load the data, train the model, and print out a detailed classification report containing Precision, Recall, and F1-score for each class (positive, negative, neutral).
+
+## Configuration Management
+
+All important paths, model hyperparameters, and data settings are stored in `src/config.py`. If you want to run comparative experiments (e.g., changing batch size or learning rate), please modify the corresponding variables in `Config` class:
 
 ```python
-from src.data_helper import get_bow_dataloaders, get_tfidf_dataloaders, get_w2c_dataloaders
-from src.data_helper import train_bow_or_tfidf_model, train_word2vec_model
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-
-# Configuration
-train_path = 'data/raw/train_data.csv'
-test_path = 'data/raw/test_data.csv'
-batch_size = 32
-
-# Example: BoW Model
-# 1. Train Vectorizer
-bow_model = train_bow_or_tfidf_model([train_path, test_path], CountVectorizer, max_features=5000)
-
-# 2. Get DataLoaders
-train_loader, test_loader = get_bow_dataloaders(
-    train_path, test_path, 
-    bow_model, 
-    batch_size=batch_size
-)
-
-# 3. Iterate
-for batch_x, batch_y in train_loader:
-    # batch_x: (batch_size, 5000)
-    # batch_y: (batch_size,)
-    pass
-```
-
-# Models: TextCNN & DistilBERT
-
-```bash
-import pandas as pd
-import numpy as np
-import random
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from collections import Counter
-from sklearn.metrics import classification_report
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-
-# Install transformers if not already present
-# pip install -q transformers
-```
-
-### 1. Device & Random Seed
-
-```bash
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Using device: {device}")
-
-def set_seed(seed=42):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-set_seed(42)
-```
-
-### 2. Data Loading & Preprocessing
-
-```bash
-# Assume train_data.csv and test_data.csv are already generated by preprocess.py
-train_df = pd.read_csv('data/raw/train_data.csv')
-test_df = pd.read_csv('data/raw/test_data.csv')
-
-# Map labels to integers
-label_map = {'positive': 0, 'negative': 1, 'neutral': 2}
-train_df['label'] = train_df['sentiment'].map(label_map)
-test_df['label'] = test_df['sentiment'].map(label_map)
-
-# Ensure processed_text column is string (handle missing values)
-train_df['processed_text'] = train_df['processed_text'].fillna('').astype(str)
-test_df['processed_text'] = test_df['processed_text'].fillna('').astype(str)
-
-X_train = train_df['processed_text'].values
-y_train = train_df['label'].values
-X_test = test_df['processed_text'].values
-y_test = test_df['label'].values
-
-print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
-print("Class distribution in training set:", np.bincount(y_train))
-```
-
-## Part I: TextCNN Model
-
-```bash
-# Build CNN Dataset
-class TextDataset(Dataset):
-    def __init__(self, texts, labels, vocab=None, max_len=32, is_train=True):
-        self.texts = texts
-        self.labels = labels
-        self.max_len = max_len
-        self.is_train = is_train
-        if is_train:
-            self.vocab = self.build_vocab(texts)
-        else:
-            self.vocab = vocab
-        self.vocab_size = len(self.vocab)
-
-    def build_vocab(self, texts, min_freq=2):
-        counter = Counter()
-        for text in texts:
-            for word in str(text).split():
-                counter[word] += 1
-        vocab = {'<PAD>': 0, '<UNK>': 1}
-        for word, freq in counter.items():
-            if freq >= min_freq:
-                vocab[word] = len(vocab)
-        return vocab
-
-    def encode_text(self, text):
-        tokens = str(text).split()
-        ids = [self.vocab.get(tok, 1) for tok in tokens]
-        if len(ids) < self.max_len:
-            ids += [0] * (self.max_len - len(ids))
-        else:
-            ids = ids[:self.max_len]
-        return torch.tensor(ids, dtype=torch.long)
-
-    def __len__(self):
-        return len(self.texts)
-
-    def __getitem__(self, idx):
-        return self.encode_text(self.texts[idx]), torch.tensor(self.labels[idx], dtype=torch.long)
-```
-
-### Create datasets and dataloaders
-
-```bash
-train_dataset_cnn = TextDataset(X_train, y_train, max_len=32, is_train=True)
-test_dataset_cnn = TextDataset(X_test, y_test, vocab=train_dataset_cnn.vocab, max_len=32, is_train=False)
-
-train_loader_cnn = DataLoader(train_dataset_cnn, batch_size=64, shuffle=True)
-test_loader_cnn = DataLoader(test_dataset_cnn, batch_size=64, shuffle=False)
-print(f"CNN vocab size: {train_dataset_cnn.vocab_size}")
-```
-
-### Define TextCNN Model
-
-```bash
-class TextCNN(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, num_filters, filter_sizes, num_classes, dropout=0.5):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
-        self.convs = nn.ModuleList([
-            nn.Conv1d(embedding_dim, num_filters, fs) for fs in filter_sizes
-        ])
-        self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(len(filter_sizes) * num_filters, num_classes)
-
-    def forward(self, x):
-        emb = self.embedding(x)                     # (batch, seq_len, embed_dim)
-        emb = emb.permute(0, 2, 1)                  # (batch, embed_dim, seq_len)
-        conv_outs = [F.relu(conv(emb)) for conv in self.convs]
-        pooled = [F.max_pool1d(c, c.size(2)).squeeze(2) for c in conv_outs]
-        cat = self.dropout(torch.cat(pooled, dim=1))
-        return self.fc(cat)
-```
-
-### Model parameters
-
-```bash
-vocab_size = train_dataset_cnn.vocab_size
-embedding_dim = 100
-num_filters = 100
-filter_sizes = [3,4,5]
-num_classes = 3
-
-model_cnn = TextCNN(vocab_size, embedding_dim, num_filters, filter_sizes, num_classes).to(device)
-criterion_cnn = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.5, 1.0]).to(device))
-optimizer_cnn = optim.Adam(model_cnn.parameters(), lr=1e-3)
-```
-
-### Training Functions
-
-```bash
-def train_cnn_epoch(model, loader, criterion, optimizer):
-    model.train()
-    total_loss = 0
-    for texts, labels in loader:
-        texts, labels = texts.to(device), labels.to(device)
-        optimizer.zero_grad()
-        outputs = model(texts)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-    return total_loss / len(loader)
-
-def evaluate_cnn(model, loader, criterion):
-    model.eval()
-    total_loss = 0
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for texts, labels in loader:
-            texts, labels = texts.to(device), labels.to(device)
-            outputs = model(texts)
-            loss = criterion(outputs, labels)
-            total_loss += loss.item()
-            _, pred = torch.max(outputs, 1)
-            total += labels.size(0)
-            correct += (pred == labels).sum().item()
-    return total_loss / len(loader), correct / total
-```
-
-### Train CNN
-
-```bash
-print("\nTraining TextCNN...")
-for epoch in range(10):
-    train_loss = train_cnn_epoch(model_cnn, train_loader_cnn, criterion_cnn, optimizer_cnn)
-    test_loss, test_acc = evaluate_cnn(model_cnn, test_loader_cnn, criterion_cnn)
-    print(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Test Loss={test_loss:.4f}, Test Acc={test_acc:.4f}")
-```
-
-### CNN Classification Report
-
-```bash
-def get_cnn_predictions(model, loader):
-    model.eval()
-    preds, labels = [], []
-    with torch.no_grad():
-        for texts, lbls in loader:
-            texts = texts.to(device)
-            outputs = model(texts)
-            _, pred = torch.max(outputs, 1)
-            preds.extend(pred.cpu().numpy())
-            labels.extend(lbls.numpy())
-    return preds, labels
-
-y_pred_cnn, y_true_cnn = get_cnn_predictions(model_cnn, test_loader_cnn)
-print("\nCNN Classification Report:")
-print(classification_report(y_true_cnn, y_pred_cnn, target_names=['positive','negative','neutral']))
-```
-
-## Part II: Transformer Model
-
-```bash
-try:
-    from transformers import DistilBertTokenizer, DistilBertForSequenceClassification, AdamW
-except ImportError:
-    print("Installing transformers...")
-    !pip install -q transformers
-    from transformers import DistilBertTokenizer, DistilBertForSequenceClassification, AdamW
-```
-
-### Build BERT Dataset
-
-```bash
-class BertDataset(Dataset):
-    def __init__(self, texts, labels, tokenizer, max_len=64):
-        self.texts = texts
-        self.labels = labels
-        self.tokenizer = tokenizer
-        self.max_len = max_len
-
-    def __len__(self):
-        return len(self.texts)
-
-    def __getitem__(self, idx):
-        text = str(self.texts[idx])
-        label = self.labels[idx]
-        encoding = self.tokenizer(
-            text,
-            add_special_tokens=True,
-            max_length=self.max_len,
-            padding='max_length',
-            truncation=True,
-            return_tensors='pt'
-        )
-        return {
-            'input_ids': encoding['input_ids'].flatten(),
-            'attention_mask': encoding['attention_mask'].flatten(),
-            'labels': torch.tensor(label, dtype=torch.long)
-        }
-
-tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
-model_bert = DistilBertForSequenceClassification.from_pretrained('distilbert-base-uncased', num_labels=3)
-model_bert.to(device)
-
-train_dataset_bert = BertDataset(X_train, y_train, tokenizer, max_len=64)
-test_dataset_bert = BertDataset(X_test, y_test, tokenizer, max_len=64)
-train_loader_bert = DataLoader(train_dataset_bert, batch_size=16, shuffle=True)
-test_loader_bert = DataLoader(test_dataset_bert, batch_size=16, shuffle=False)
-
-optimizer_bert = AdamW(model_bert.parameters(), lr=2e-5)
-criterion_bert = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.5, 1.0]).to(device))
-```
-
-### Training Functions
-
-```bash
-def train_bert_epoch(model, loader, optimizer, criterion):
-    model.train()
-    total_loss = 0
-    for batch in loader:
-        input_ids = batch['input_ids'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
-        labels = batch['labels'].to(device)
-
-        optimizer.zero_grad()
-        outputs = model(input_ids, attention_mask=attention_mask)
-        loss = criterion(outputs.logits, labels)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-    return total_loss / len(loader)
-
-def evaluate_bert(model, loader, criterion):
-    model.eval()
-    total_loss = 0
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for batch in loader:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            labels = batch['labels'].to(device)
-            outputs = model(input_ids, attention_mask=attention_mask)
-            loss = criterion(outputs.logits, labels)
-            total_loss += loss.item()
-            _, pred = torch.max(outputs.logits, 1)
-            total += labels.size(0)
-            correct += (pred == labels).sum().item()
-    return total_loss / len(loader), correct / total
-```
-
-### Train BERT
-
-```bash
-print("\nTraining DistilBERT...")
-for epoch in range(4):
-    train_loss = train_bert_epoch(model_bert, train_loader_bert, optimizer_bert, criterion_bert)
-    test_loss, test_acc = evaluate_bert(model_bert, test_loader_bert, criterion_bert)
-    print(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Test Loss={test_loss:.4f}, Test Acc={test_acc:.4f}")
-```
-
-### BERT Classification Report
-
-```bash
-def get_bert_predictions(model, loader):
-    model.eval()
-    preds, labels = [], []
-    with torch.no_grad():
-        for batch in loader:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            labels_batch = batch['labels'].to(device)
-            outputs = model(input_ids, attention_mask=attention_mask)
-            _, pred = torch.max(outputs.logits, 1)
-            preds.extend(pred.cpu().numpy())
-            labels.extend(labels_batch.cpu().numpy())
-    return preds, labels
-
-y_pred_bert, y_true_bert = get_bert_predictions(model_bert, test_loader_bert)
-print("\nDistilBERT Classification Report:")
-print(classification_report(y_true_bert, y_pred_bert, target_names=['positive','negative','neutral']))
-
-print("\nDone.")
+class Config:
+    # Example hyperparameters
+    CNN_LR = 1e-3
+    CNN_BATCH_SIZE = 64
+    
+    BERT_LR = 2e-5
+    BERT_BATCH_SIZE = 16
 ```
 
 ## Troubleshooting
 
-- **SSL Certificate Errors**: If you see SSL errors when downloading NLTK data on macOS, run `/Applications/Python 3.x/Install Certificates.command` or use the manual download script above.
-- **ModuleNotFoundError**: Ensure you have activated your virtual environment (`source venv/bin/activate` or `venv\Scripts\activate`) before running scripts.
+- **SSL Certificate Errors**: The scripts now handle SSL errors automatically. However, if you still face issues downloading NLTK data on macOS, try running `/Applications/Python 3.x/Install Certificates.command`.
+- **ModuleNotFoundError**: Ensure you have activated your virtual environment (`source .venv/bin/activate`) before running any scripts.
