@@ -45,6 +45,17 @@ class Config:
     BERT_EPOCHS = 4
     
     # ==========================================
-    # 5. Preprocessing Settings
+    # 5. Attention LSTM Hyperparameters
+    # ==========================================
+    LSTM_MAX_LEN = 32
+    LSTM_BATCH_SIZE = 32
+    LSTM_LR = 0.001
+    LSTM_EPOCHS = 10
+    LSTM_EMBEDDING_DIM = 128
+    LSTM_HIDDEN_DIM = 128
+    LSTM_DROPOUT = 0.5
+    
+    # ==========================================
+    # 6. Preprocessing Settings
     # ==========================================
     TRAIN_RATIO = 0.75

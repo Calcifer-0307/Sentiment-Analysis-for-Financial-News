@@ -1,6 +1,6 @@
 # Financial News Sentiment Analysis
 
-This project implements sentiment analysis on financial news using various feature extraction techniques (BoW, TF-IDF, Word2Vec) and PyTorch models (TextCNN and DistilBERT).
+This project implements sentiment analysis on financial news using various feature extraction techniques (BoW, TF-IDF, Word2Vec) and PyTorch models (TextCNN, Attention LSTM, and DistilBERT).
 
 ## Project Structure
 
@@ -11,6 +11,7 @@ This project implements sentiment analysis on financial news using various featu
   - `preprocess.py`: Text cleaning and train/test splitting script.
   - `data_helper.py`: Helper functions for BoW, TF-IDF, and Word2Vec models.
   - `train_CNN.py`: Training and evaluation script for the TextCNN model.
+  - `train_lstm.py`: Training and evaluation script for the Attention LSTM model.
   - `train_transformer.py`: Training and evaluation script for the DistilBERT model.
 - `notebooks/`: Text reports and previous jupyter notebooks.
 - `requirements.txt`: Python dependencies.
@@ -65,11 +66,16 @@ This will generate `train_data.csv` and `test_data.csv` in the `data/raw/` direc
 
 ### 2. Training the Models
 
-We have implemented two deep learning models for comparison. You can adjust hyperparameters (like learning rate, batch size, epochs) centrally in `src/config.py`.
+We have implemented three deep learning models for comparison. You can adjust hyperparameters (like learning rate, batch size, epochs) centrally in `src/config.py`.
 
 **Run TextCNN Model:**
 ```bash
 python src/train_CNN.py
+```
+
+**Run Attention LSTM Model:**
+```bash
+python src/train_lstm.py
 ```
 
 **Run DistilBERT Model:**
@@ -89,6 +95,9 @@ class Config:
     CNN_LR = 1e-3
     CNN_BATCH_SIZE = 64
     
+    LSTM_LR = 0.001
+    LSTM_BATCH_SIZE = 32
+
     BERT_LR = 2e-5
     BERT_BATCH_SIZE = 16
 ```
