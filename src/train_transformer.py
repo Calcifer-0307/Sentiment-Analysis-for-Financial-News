@@ -18,12 +18,23 @@ from config import Config
 print(f"Using device: {Config.DEVICE}")
 
 def set_seed(seed=42):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
     random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+    # 让训练尽量可复现
+    try:
+        torch.use_deterministic_algorithms(True)
+    except Exception:
+        pass
 
 set_seed(Config.SEED)
 
@@ -113,9 +124,26 @@ train_dataset = BertDataset(X_train, y_train, tokenizer, max_len=Config.BERT_MAX
 val_dataset = BertDataset(X_val, y_val, tokenizer, max_len=Config.BERT_MAX_LEN)
 test_dataset = BertDataset(X_test, y_test, tokenizer, max_len=Config.BERT_MAX_LEN)
 
-train_loader = DataLoader(train_dataset, batch_size=Config.BERT_BATCH_SIZE, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=Config.BERT_BATCH_SIZE, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=Config.BERT_BATCH_SIZE, shuffle=False)
+# 固定 DataLoader 随机性（仅 train_loader 用 shuffle）
+g = torch.Generator()
+g.manual_seed(Config.SEED)
+
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=Config.BERT_BATCH_SIZE,
+    shuffle=True,
+    generator=g
+)
+val_loader = DataLoader(
+    val_dataset,
+    batch_size=Config.BERT_BATCH_SIZE,
+    shuffle=False
+)
+test_loader = DataLoader(
+    test_dataset,
+    batch_size=Config.BERT_BATCH_SIZE,
+    shuffle=False
+)
 
 # ==========================================
 # 4. Optimizer and Loss Function
@@ -205,7 +233,7 @@ def get_predictions(model, loader):
     return all_preds, all_labels
 
 # ==========================================
-# 6. Training Loop
+# 6. Training Loop with Early Stopping
 # ==========================================
 if __name__ == "__main__":
     print("\nStarting training...")
@@ -215,6 +243,9 @@ if __name__ == "__main__":
     test_losses, test_accs = [], []
 
     best_val_acc = 0.0
+    best_epoch = 0
+    epochs_no_improve = 0
+
     best_model_path = os.path.join(Config.OUTPUT_DIR, "models", f"best_{Config.EXP_NAME}.pt")
 
     for epoch in range(Config.BERT_EPOCHS):
@@ -236,12 +267,24 @@ if __name__ == "__main__":
             f"Test Loss={test_loss:.4f}, Test Acc={test_acc:.4f}"
         )
 
-        # Save best model using validation accuracy
-        if val_acc > best_val_acc:
+        # 如果 val_acc 明显提升，则保存模型
+        if val_acc > best_val_acc + Config.EARLY_STOPPING_MIN_DELTA:
             best_val_acc = val_acc
+            best_epoch = epoch + 1
+            epochs_no_improve = 0
             torch.save(bert_model.state_dict(), best_model_path)
+            print(f"  --> New best model saved at epoch {best_epoch} (Val Acc={best_val_acc:.4f})")
+        else:
+            epochs_no_improve += 1
+            print(f"  --> No improvement for {epochs_no_improve} epoch(s)")
+
+        # Early stopping
+        if epochs_no_improve >= Config.EARLY_STOPPING_PATIENCE:
+            print(f"\nEarly stopping triggered at epoch {epoch+1}")
+            break
 
     print(f"\nBest model saved to: {best_model_path}")
+    print(f"Best epoch: {best_epoch}")
     print(f"Best validation accuracy: {best_val_acc:.4f}")
 
     # ==========================================
@@ -256,6 +299,7 @@ if __name__ == "__main__":
         "test_loss": test_losses,
         "test_acc": test_accs,
         "best_val_acc": best_val_acc,
+        "best_epoch": best_epoch,
         "lr": Config.BERT_LR,
         "batch_size": Config.BERT_BATCH_SIZE,
         "epochs": Config.BERT_EPOCHS,
@@ -279,7 +323,7 @@ if __name__ == "__main__":
     print("\nClassification Report:")
     print(classification_report(y_true, y_pred, target_names=Config.TARGET_NAMES))
 
-    # Save first 100 predictions for report
+    # Save first 100 predictions
     pred_df = test_df.copy().reset_index(drop=True)
     pred_df["true_label"] = [Config.TARGET_NAMES[i] for i in y_true]
     pred_df["pred_label"] = [Config.TARGET_NAMES[i] for i in y_pred]
