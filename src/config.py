@@ -61,7 +61,7 @@ class Config:
     # 'cnn_bs_128'
     # 'cnn_focal'
     # ============================
-    EXP_NAME = 'cnn_bs_128'
+    EXP_NAME = 'cnn_focal'
 
     # ==========================================
     # 5. TextCNN Hyperparameters
