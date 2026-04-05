@@ -61,7 +61,7 @@ class Config:
     # 'cnn_bs_128'
     # 'cnn_focal'
     # ============================
-    EXP_NAME = 'cnn_bs_32'
+    EXP_NAME = 'cnn_bs_64'
 
     # ==========================================
     # 5. TextCNN Hyperparameters
@@ -74,7 +74,7 @@ class Config:
     # 可测试：
     # 8 / 16 / 32 / 64 / 128
     # ============================
-    CNN_BATCH_SIZE = 32
+    CNN_BATCH_SIZE = 64
 
     # ============================
     # 【实验时要改：Learning Rate 对比实验改这里】
