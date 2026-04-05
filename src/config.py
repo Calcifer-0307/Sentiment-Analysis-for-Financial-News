@@ -90,7 +90,7 @@ class Config:
     # 推荐 20 或 30
     # 如果时间紧可以先 15~20
     # ============================
-    CNN_EPOCHS = 20
+    CNN_EPOCHS = 100
 
     CNN_EMBEDDING_DIM = 100
     CNN_NUM_FILTERS = 100
